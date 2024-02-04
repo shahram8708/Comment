@@ -1,78 +1,84 @@
 const express = require('express');
-const { MongoClient } = require('mongodb');
+const mongoose = require('mongoose');
 
 const app = express();
 const port = 3000;
 
 const uri = "mongodb+srv://ramcoding8:Shah6708@cluster0.xjzz1dy.mongodb.net/commentSystem?retryWrites=true&w=majority";
 const dbName = 'commentSystem';
-const collectionName = 'comments';
-
-let client;
 
 async function connectToMongoDB() {
     try {
-        client = new MongoClient(uri, {
+        await mongoose.connect(uri, {
             useNewUrlParser: true,
             useUnifiedTopology: true,
+            serverSelectionTimeoutMS: 30000,
         });
 
-        await client.connect();
         console.log('Connected to MongoDB');
     } catch (error) {
         console.error('Error connecting to MongoDB:', error);
+        process.exit(1);
     }
 }
 
-async function readComments() {
-    try {
-        const db = client.db(dbName);
-        const collection = db.collection(collectionName);
-        return await collection.find({}).toArray();
-    } catch (error) {
-        console.error('Error reading comments from MongoDB:', error);
-        return [];
-    }
-}
+const commentSchema = new mongoose.Schema({
+    name: String,
+    message: String,
+    timestamp: { type: Date, default: Date.now },
+    likes: { type: Number, default: 0 },
+});
 
-async function writeComments(comments) {
-    try {
-        const db = client.db(dbName);
-        const collection = db.collection(collectionName);
-        await collection.deleteMany({});
-        await collection.insertMany(comments);
-    } catch (error) {
-        console.error('Error writing comments to MongoDB:', error);
-    }
-}
+const Comment = mongoose.model('Comment', commentSchema);
 
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
+app.use(express.json());
 
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/index.html');
 });
 
 app.get('/comments', async (req, res) => {
-    const comments = await readComments();
-    res.json(comments);
+    try {
+        const comments = await Comment.find({}).exec();
+        res.json(comments);
+    } catch (error) {
+        console.error('Error reading comments from MongoDB:', error);
+        res.status(500).json({ success: false, message: 'Error reading comments.' });
+    }
 });
 
 app.post('/comments', async (req, res) => {
     const { name, message } = req.body;
 
     if (name && message) {
-        const newComment = { name, message };
-
-        const comments = await readComments();
-        comments.push(newComment);
-        await writeComments(comments);
-
-        res.json({ success: true, message: 'Comment added successfully.' });
+        try {
+            const newComment = new Comment({ name, message });
+            await newComment.save();
+            res.json({ success: true, message: 'Comment added successfully.' });
+        } catch (error) {
+            console.error('Error adding comment:', error);
+            res.status(500).json({ success: false, message: 'Error adding comment.' });
+        }
     } else {
         res.json({ success: false, message: 'Name and message are required.' });
     }
-})
+});
+
+app.post('/comments/like', async (req, res) => {
+    const { commentId } = req.body;
+
+    try {
+        const comment = await Comment.findByIdAndUpdate(commentId, { $inc: { likes: 1 } }, { new: true });
+        if (!comment) {
+            return res.status(404).json({ success: false, message: 'Comment not found.' });
+        }
+        res.json({ success: true, message: 'Comment liked successfully.', likes: comment.likes });
+    } catch (error) {
+        console.error('Error liking comment:', error);
+        res.status(500).json({ success: false, message: 'Error liking comment.' });
+    }
+});
 
 connectToMongoDB().then(() => {
     app.listen(port, () => {

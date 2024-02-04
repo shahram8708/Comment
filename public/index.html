@@ -107,6 +107,38 @@
         .comment button:hover {
             background-color: #c0392b;
         }
+
+        .replies-list {
+            list-style-type: none;
+            padding: 0;
+            margin-top: 10px;
+        }
+
+        .reply {
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background-color: #f9f9f9;
+        }
+
+        .reply strong {
+            color: #555;
+        }
+
+        .reply button {
+            background-color: #e74c3c;
+            color: #fff;
+            border: none;
+            padding: 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 5px;
+        }
+
+        .reply button:hover {
+            background-color: #c0392b;
+        }
     </style>
 </head>
 
@@ -128,23 +160,116 @@
 
     <script>
         async function fetchComments() {
-            const response = await fetch('/comments');
-            const comments = await response.json();
-            displayComments(comments);
+            try {
+                const response = await fetch('/comments');
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch comments: ${response.status}`);
+                }
+                const comments = await response.json();
+                displayComments(comments);
+            } catch (error) {
+                console.error('Error fetching comments:', error);
+            }
         }
 
-        window.onload = fetchComments;
-
-
         function displayComments(comments) {
-            const commentsList = document.getElementById('comments');
-            commentsList.innerHTML = '';
-            comments.forEach(comment => {
-                const commentElement = document.createElement('li');
-                commentElement.className = 'comment';
-                commentElement.innerHTML = `<strong style="text-transform: capitalize;">${comment.name}:</strong> <weak style="text-transform: capitalize;">${comment.message}</weak>`;
-                commentsList.appendChild(commentElement);
+    const commentsList = document.getElementById('comments');
+    commentsList.innerHTML = '';
+
+    function createCommentElement(comment) {
+        const commentElement = document.createElement('li');
+        commentElement.className = 'comment';
+
+        const timestamp = new Date(comment.timestamp).toLocaleString();
+
+        commentElement.innerHTML = `
+            <strong style="text-transform: capitalize;">${comment.name}:</strong>
+            <weak style="text-transform: capitalize;">${comment.message}</weak>
+            <div>
+                <small>${timestamp}</small>
+                <button onclick="likeComment('${comment._id}', this)">Like (<span id="likeCount_${comment._id}">${comment.likes}</span>)</button>
+            </div>`;
+
+        const repliesList = document.createElement('ul');
+        repliesList.className = 'replies-list';
+
+        if (comment.replies && comment.replies.length > 0) {
+            comment.replies.forEach(reply => {
+                const replyElement = createCommentElement(reply);
+                repliesList.appendChild(replyElement);
             });
+        }
+
+        commentElement.appendChild(repliesList);
+
+        return commentElement;
+    }
+
+    if (Array.isArray(comments)) {
+        comments.forEach(comment => {
+            const commentElement = createCommentElement(comment);
+            commentsList.appendChild(commentElement);
+        });
+    } else {
+        console.error('Invalid comments format:', comments);
+    }
+}
+
+
+        async function replyToComment(parentCommentId, parentName) {
+            const name = prompt(`Enter your name replying to ${parentName}:`);
+            const message = prompt('Enter your reply:');
+
+            if (name && message) {
+                const response = await fetch('/comments', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `name=${encodeURIComponent(name)}&message=${encodeURIComponent(message)}&parentCommentId=${encodeURIComponent(parentCommentId)}`,
+                });
+                const result = await response.json();
+                if (result.success) {
+                    fetchComments();
+                } else {
+                    alert(result.message);
+                }
+            } else {
+                alert('Name and message are required.');
+            }
+        }
+
+        async function likeComment(commentId, buttonElement) {
+            const likedComments = JSON.parse(localStorage.getItem('likedComments')) || [];
+
+            if (!likedComments.includes(commentId)) {
+                const response = await fetch('/comments/like', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ commentId }),
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    const likeCountSpan = document.getElementById(`likeCount_${commentId}`);
+                    if (likeCountSpan) {
+                        likeCountSpan.textContent = result.likes;
+                    }
+
+                    likedComments.push(commentId);
+                    localStorage.setItem('likedComments', JSON.stringify(likedComments));
+
+                    if (buttonElement) {
+                        buttonElement.disabled = true;
+                    }
+                } else {
+                    alert(result.message);
+                }
+            } else {
+                alert('You have already liked this comment.');
+            }
         }
 
         async function addComment() {
@@ -178,6 +303,8 @@
 
         fetchComments();
     </script>
+
+
 
 </body>
 
